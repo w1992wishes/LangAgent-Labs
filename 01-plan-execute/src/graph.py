@@ -18,11 +18,18 @@ from .prompts import PLANNER_PROMPT, EXECUTOR_PROMPT, SYNTHESIZER_PROMPT
 logger = logging.getLogger(__name__)
 
 # 初始化 LLM
+# llm = ChatOpenAI(
+#     model=os.getenv("DASHSCOPE_MODEL", "qwen-plus"),
+#     api_key=os.getenv("DASHSCOPE_API_KEY"),
+#     base_url=os.getenv("DASHSCOPE_API_BASE", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+#     temperature=0.1,
+# )
+
 llm = ChatOpenAI(
-    model=os.getenv("DASHSCOPE_MODEL", "qwen-plus"),
-    api_key=os.getenv("DASHSCOPE_API_KEY"),
-    base_url=os.getenv("DASHSCOPE_API_BASE", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
     temperature=0.1,
+    model="glm-4.7",
+    api_key=os.getenv("ZHIPU_API_KEY"),
+    base_url=os.getenv("ZHIPU_API_BASE", "https://open.bigmodel.cn/api/paas/v4/"),
 )
 
 

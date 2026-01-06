@@ -16,69 +16,10 @@ sys.path.insert(0, src_path)
 
 import uvicorn
 from dotenv import load_dotenv
+from check_env import check_env
 
 # 加载环境变量
 load_dotenv()
-
-
-def check_env():
-    """检查环境配置"""
-    print("=" * 60)
-    print("🔍 检查环境配置")
-    print("=" * 60)
-
-    # 检查必需的环境变量
-    api_key = os.getenv("OPENAI_API_KEY")
-    api_base = os.getenv("OPENAI_API_BASE")
-    model = os.getenv("OPENAI_MODEL")
-
-    issues = []
-
-    # 检查 API Key
-    if not api_key:
-        issues.append("❌ OPENAI_API_KEY 未设置")
-    elif api_key.startswith("your-") or api_key == "sk-xxxxxxxxxxxxxx":
-        issues.append("❌ OPENAI_API_KEY 使用了默认值，请替换为真实的 API Key")
-    else:
-        print(f"✅ OPENAI_API_KEY: {api_key[:10]}...{api_key[-4:]}")
-
-    # 检查 API Base
-    if not api_base:
-        print("⚠️  OPENAI_API_BASE 未设置，将使用默认值")
-    else:
-        print(f"✅ OPENAI_API_BASE: {api_base}")
-
-    # 检查 Model
-    if not model:
-        print("⚠️  OPENAI_MODEL 未设置，将使用默认值")
-    else:
-        print(f"✅ OPENAI_MODEL: {model}")
-
-    print("-" * 60)
-
-    # 检查 .env 文件是否存在
-    env_path = os.path.join(project_root, ".env")
-    if os.path.exists(env_path):
-        print(f"✅ .env 文件存在")
-    else:
-        issues.append(f"❌ .env 文件不存在")
-        print(f"💡 提示: 请复制 .env.example 到 .env 并配置")
-
-    print("=" * 60)
-
-    if issues:
-        print("\n❌ 发现以下问题:")
-        for issue in issues:
-            print(f"   {issue}")
-        print("\n请修复这些问题后再运行服务。")
-        print("\n快速修复:")
-        print("1. 打开 .env 文件")
-        print("2. 将 OPENAI_API_KEY 替换为你的真实 API Key")
-        print("3. 保存后重新运行\n")
-        return False
-    else:
-        print("\n✅ 环境配置检查通过！\n")
-        return True
 
 
 if __name__ == "__main__":

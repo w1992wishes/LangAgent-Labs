@@ -49,43 +49,76 @@ def test_stream():
 
     url = "http://localhost:8000/api/chat/stream"
     data = {
-        "message": "请分析一下人工智能的发展趋势，包括当前的技术水平和未来的应用前景，拆两个步骤就行"
+        "message": "你好，请简单介绍一下你自己"
     }
 
     print(f"\n📤 发送请求: {data['message']}")
 
     try:
-        response = requests.post(url, json=data, stream=True, timeout=300)
+        response = requests.post(
+            url,
+            json=data,
+            stream=True,
+            timeout=300
+        )
 
         print(f"\n✅ 连接成功，开始接收流式数据:\n")
+        print("=" * 60)
 
-        for line in response.iter_lines():
+        # SSE 解析：组合多行为一个事件
+        current_event = None
+        current_data = []
+
+        for line in response.iter_lines(decode_unicode=True):
             if line:
-                line = line.decode('utf-8')
-                if line.startswith('data:'):
+                # 解析 SSE 格式
+                if line.startswith('event:'):
+                    current_event = line[6:].strip()
+                elif line.startswith('data:'):
                     data_str = line[5:].strip()
                     if data_str:
+                        current_data.append(data_str)
+                elif line == '':  # 空行表示事件结束
+                    if current_event and current_data:
+                        # 组合数据
+                        combined_data = '\n'.join(current_data)
+
                         try:
-                            event = json.loads(data_str)
-                            event_type = event.get('event', 'unknown')
-                            print(f"📨 事件: {event_type}")
+                            if current_event in ['start', 'progress']:
+                                # 简单字符串数据
+                                if current_event == 'start':
+                                    print(f"\n🚀 {combined_data}\n")
+                                elif current_event == 'progress':
+                                    print(f"⏳ {combined_data}")
 
-                            if event_type == 'node_update':
-                                node = event.get('node', '')
-                                print(f"   节点: {node}")
+                            elif current_event == 'final':
+                                # JSON 数据
+                                event_data = json.loads(combined_data)
+                                print("\n" + "=" * 60)
+                                print(f"🎯 最终结果（结构化数据）:")
+                                print("=" * 60)
 
-                            elif event_type == 'final':
-                                result = event.get('data', {})
-                                print(f"   最终回答: {result.get('response', '')}...")
+                                # 显示计划
+                                plan = event_data.get('plan', [])
+                                print(f"\n📋 执行计划（{len(plan)}个步骤）:")
+                                for step in plan:
+                                    print(f"  {step.get('step_id', '-')}. {step.get('description', '')}")
+
+                                # 显示最终回答
+                                print(f"\n💡 最终回答:")
+                                print(f"{event_data.get('response', '')}\n")
                                 break
 
-                            elif event_type == 'error':
-                                error = event.get('data', {}).get('error', 'Unknown error')
-                                print(f"   ❌ 错误: {error}")
+                            elif current_event == 'error':
+                                print(f"\n❌ 错误: {combined_data}\n")
                                 break
 
-                        except json.JSONDecodeError:
-                            pass
+                        except json.JSONDecodeError as e:
+                            print(f"[解析错误] {e}")
+                        finally:
+                            # 重置
+                            current_event = None
+                            current_data = []
 
     except requests.exceptions.RequestException as e:
         print(f"\n❌ 错误: {e}")
