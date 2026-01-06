@@ -267,7 +267,10 @@ async def chat_stream(request: ChatRequest):
                 "data": str(e)
             }
 
-    return EventSourceResponse(event_generator())
+    return EventSourceResponse(
+        event_generator(),
+        media_type="text/event-stream",
+    )
 
 
 if __name__ == "__main__":

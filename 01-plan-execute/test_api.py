@@ -49,7 +49,7 @@ def test_stream():
 
     url = "http://localhost:8000/api/chat/stream"
     data = {
-        "message": "你好，请简单介绍一下你自己"
+        "message": "你好"
     }
 
     print(f"\n📤 发送请求: {data['message']}")
@@ -68,60 +68,82 @@ def test_stream():
         # SSE 解析：组合多行为一个事件
         current_event = None
         current_data = []
+        line_count = 0
 
-        for line in response.iter_lines(decode_unicode=True):
+        # 不使用 decode_unicode，我们手动解码
+        for line in response.iter_lines(decode_unicode=False):
             if line:
+                line_count += 1
+                decoded_line = line.decode('utf-8')
+
+                # 调试：显示前20行（完整输出）
+                if line_count <= 20:
+                    print(f"[调试 {line_count}] {decoded_line}")
+
                 # 解析 SSE 格式
-                if line.startswith('event:'):
-                    current_event = line[6:].strip()
-                elif line.startswith('data:'):
-                    data_str = line[5:].strip()
+                if decoded_line.startswith('event:'):
+                    # 如果已有事件，先处理
+                    if current_event and current_data:
+                        if line_count > 20:  # 前20行只显示调试
+                            process_sse_event(current_event, current_data)
+                    # 开始新事件
+                    current_event = decoded_line[6:].strip()
+                    current_data = []
+
+                elif decoded_line.startswith('data:'):
+                    data_str = decoded_line[5:].strip()
                     if data_str:
                         current_data.append(data_str)
-                elif line == '':  # 空行表示事件结束
-                    if current_event and current_data:
-                        # 组合数据
-                        combined_data = '\n'.join(current_data)
 
-                        try:
-                            if current_event in ['start', 'progress']:
-                                # 简单字符串数据
-                                if current_event == 'start':
-                                    print(f"\n🚀 {combined_data}\n")
-                                elif current_event == 'progress':
-                                    print(f"⏳ {combined_data}")
-
-                            elif current_event == 'final':
-                                # JSON 数据
-                                event_data = json.loads(combined_data)
-                                print("\n" + "=" * 60)
-                                print(f"🎯 最终结果（结构化数据）:")
-                                print("=" * 60)
-
-                                # 显示计划
-                                plan = event_data.get('plan', [])
-                                print(f"\n📋 执行计划（{len(plan)}个步骤）:")
-                                for step in plan:
-                                    print(f"  {step.get('step_id', '-')}. {step.get('description', '')}")
-
-                                # 显示最终回答
-                                print(f"\n💡 最终回答:")
-                                print(f"{event_data.get('response', '')}\n")
-                                break
-
-                            elif current_event == 'error':
-                                print(f"\n❌ 错误: {combined_data}\n")
-                                break
-
-                        except json.JSONDecodeError as e:
-                            print(f"[解析错误] {e}")
-                        finally:
-                            # 重置
-                            current_event = None
-                            current_data = []
+        # 处理最后一个事件
+        if current_event and current_data:
+            process_sse_event(current_event, current_data)
 
     except requests.exceptions.RequestException as e:
         print(f"\n❌ 错误: {e}")
+
+
+def process_sse_event(event_type, data_list):
+    """处理 SSE 事件"""
+    combined_data = '\n'.join(data_list)
+
+    try:
+        if event_type in ['start', 'progress']:
+            # 简单字符串数据
+            if event_type == 'start':
+                print(f"\n🚀 {combined_data}\n")
+            elif event_type == 'progress':
+                print(f"⏳ {combined_data}")
+
+        elif event_type == 'final':
+            # JSON 数据 - 处理单引号问题
+            # sse-starlette 可能会发送 Python 格式的字符串，需要转换
+            json_data = combined_data
+            # 如果是单引号，替换为双引号（简单处理）
+            if combined_data.startswith('{') and "'" in combined_data:
+                json_data = combined_data.replace("'", '"')
+
+            event_data = json.loads(json_data)
+            print("\n" + "=" * 60)
+            print(f"🎯 最终结果（结构化数据）:")
+            print("=" * 60)
+
+            # 显示计划
+            plan = event_data.get('plan', [])
+            print(f"\n📋 执行计划（{len(plan)}个步骤）:")
+            for step in plan:
+                print(f"  {step.get('step_id', '-')}. {step.get('description', '')}")
+
+            # 显示最终回答
+            print(f"\n💡 最终回答:")
+            print(f"{event_data.get('response', '')}\n")
+
+        elif event_type == 'error':
+            print(f"\n❌ 错误: {combined_data}\n")
+
+    except json.JSONDecodeError as e:
+        print(f"[解析错误] {e}")
+        print(f"[错误数据] {combined_data}")
 
 
 def test_root():
