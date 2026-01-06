@@ -6,6 +6,7 @@ FastAPI 服务
 import os
 import json
 import logging
+import asyncio
 from typing import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -93,9 +94,23 @@ async def health():
 
 
 async def stream_graph_events(user_message: str) -> AsyncGenerator[dict, None]:
-    """流式输出图事件"""
+    """流式输出图事件（包含 LLM 思考过程）"""
     try:
-        logger.info(f"📥 [流式] 收到请求: {user_message[:50]}...")
+        logger.info(f"📥 [流式] 收到请求: {user_message}")
+
+        # 创建队列用于传递思考事件
+        thinking_queue = asyncio.Queue()
+
+        # 定义思考回调函数
+        def thinking_callback(node_name: str, token: str):
+            """LLM 思考过程回调"""
+            thinking_queue.put_nowait({
+                "node": node_name,
+                "token": token
+            })
+
+        # 创建初始状态，传入思考回调
+        initial_state = create_initial_state(user_message, thinking_callback)
 
         # 立即发送开始事件
         yield {
@@ -103,47 +118,52 @@ async def stream_graph_events(user_message: str) -> AsyncGenerator[dict, None]:
             "data": "开始处理您的请求..."
         }
 
-        # 创建初始状态
-        initial_state = create_initial_state(user_message)
+        # 创建异步任务：执行图并收集结果
+        async def run_graph():
+            """执行图并收集最终状态"""
+            result_state = {}
+            async for event in graph.astream(initial_state):
+                for node_name, node_output in event.items():
+                    if isinstance(node_output, dict):
+                        result_state.update(node_output)
+            return result_state
 
-        # 收集所有状态更新，用于获取最终结果
-        final_state = {}
+        # 启动图执行任务
+        graph_task = asyncio.create_task(run_graph())
 
-        # 异步执行图
-        async for event in graph.astream(initial_state):
-            # 解析事件并生成 SSE 事件
-            for node_name, node_output in event.items():
-                if isinstance(node_output, dict):
-                    # 更新最终状态
-                    final_state.update(node_output)
+        # 同时处理思考事件
+        while not graph_task.done():
+            # 尝试获取思考事件（带超时）
+            try:
+                thinking_event = await asyncio.wait_for(thinking_queue.get(), timeout=0.05)
+                node_name = thinking_event["node"]
+                token = thinking_event["token"]
 
-                    logger.info(f"🔄 [流式] 节点执行: {node_name}")
+                yield {
+                    "event": "thinking",
+                    "data": f"[{node_name.upper()}] {token}"
+                }
+            except asyncio.TimeoutError:
+                # 没有思考事件，继续循环
+                continue
 
-                    # 发送节点进度
-                    if node_name == "plan":
-                        plan = final_state.get("plan", [])
-                        yield {
-                            "event": "progress",
-                            "data": f"✅ 已生成执行计划，共 {len(plan)} 个步骤"
-                        }
-                    elif node_name == "execute":
-                        current_index = final_state.get("current_step_index", 0)
-                        plan = final_state.get("plan", [])
-                        if current_index > 0 and current_index <= len(plan):
-                            step = plan[current_index - 1]
-                            yield {
-                                "event": "progress",
-                                "data": f"⚙️ 正在执行步骤 {current_index}/{len(plan)}: {step.get('description', '')[:50]}..."
-                            }
-                    elif node_name == "synthesize":
-                        yield {
-                            "event": "progress",
-                            "data": "🔄 正在综合分析结果..."
-                        }
+        # 图执行完成，处理剩余的思考事件
+        while not thinking_queue.empty():
+            thinking_event = thinking_queue.get_nowait()
+            node_name = thinking_event["node"]
+            token = thinking_event["token"]
+            yield {
+                "event": "thinking",
+                "data": f"[{node_name.upper()}] {token}"
+            }
 
-        # 发送最终结果（从已收集的状态中获取）
+        # 获取最终结果
+        final_state = await graph_task
+
         logger.info(f"✅ [流式] 执行完成")
         logger.info(f"📤 [流式] 最终回答长度: {len(final_state.get('final_response', ''))} 字符")
+
+        # 发送最终结果
         yield {
             "event": "final",
             "data": {

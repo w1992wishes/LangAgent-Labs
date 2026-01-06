@@ -3,7 +3,7 @@ LangGraph 状态定义
 
 定义 Plan-Execute Agent 的状态结构
 """
-from typing import List, TypedDict, Annotated, Sequence
+from typing import List, TypedDict, Annotated, Sequence, Optional, Callable
 from langchain_core.messages import BaseMessage, HumanMessage
 from operator import add
 
@@ -33,8 +33,11 @@ class AgentState(TypedDict):
     is_executing: bool  # 是否正在执行
     is_finished: bool  # 是否完成
 
+    # LLM 思考过程回调（可选）
+    thinking_callback: Optional[Callable[[str, str], None]]  # (节点名, token) -> None
 
-def create_initial_state(user_message: str) -> AgentState:
+
+def create_initial_state(user_message: str, thinking_callback: Optional[Callable] = None) -> AgentState:
     """创建初始状态"""
     return {
         "messages": [HumanMessage(content=user_message)],
@@ -45,4 +48,5 @@ def create_initial_state(user_message: str) -> AgentState:
         "is_planning": True,
         "is_executing": False,
         "is_finished": False,
+        "thinking_callback": thinking_callback,
     }

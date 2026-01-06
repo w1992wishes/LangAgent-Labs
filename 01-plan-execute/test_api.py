@@ -108,16 +108,22 @@ def process_sse_event(event_type, data_list):
     combined_data = '\n'.join(data_list)
 
     try:
-        if event_type in ['start', 'progress']:
-            # 简单字符串数据
-            if event_type == 'start':
-                print(f"\n🚀 {combined_data}\n")
-            elif event_type == 'progress':
-                print(f"⏳ {combined_data}")
+        if event_type == 'start':
+            # 开始事件
+            print(f"\n🚀 {combined_data}\n")
+
+        elif event_type == 'thinking':
+            # LLM 思考过程事件（实时流式输出）
+            # 直接打印，不换行，让思考过程连成一片
+            print(combined_data, end='', flush=True)
+
+        elif event_type == 'progress':
+            # 进度事件（思考结束后换行）
+            print(f"\n⏳ {combined_data}")
 
         elif event_type == 'final':
             # JSON 数据 - 处理单引号问题
-            # sse-starlette 可能会发送 Python 格式的字符串，需要转换
+            print()  # 思考过程结束后换行
             json_data = combined_data
             # 如果是单引号，替换为双引号（简单处理）
             if combined_data.startswith('{') and "'" in combined_data:
@@ -142,7 +148,7 @@ def process_sse_event(event_type, data_list):
             print(f"\n❌ 错误: {combined_data}\n")
 
     except json.JSONDecodeError as e:
-        print(f"[解析错误] {e}")
+        print(f"\n[解析错误] {e}")
         print(f"[错误数据] {combined_data}")
 
 

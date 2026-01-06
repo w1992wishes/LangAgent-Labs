@@ -59,15 +59,26 @@ async def plan_node(state: AgentState) -> AgentState:
     logger.info("🎯 [PLAN 节点] 开始生成执行计划...")
     user_input = state["messages"][-1].content
 
-    # 使用 LLM 生成计划
-    prompt = PLANNER_PROMPT.format(input=user_input)
-    logger.info(f"📝 [PLAN 节点] 调用 LLM 生成计划...")
-    response = await llm.ainvoke(prompt)
+    # 获取思考回调
+    thinking_callback = state.get("thinking_callback")
 
-    logger.info(f"📄 [PLAN 节点] LLM 原始响应:\n{response.content[:500]}...")
+    # 使用 LLM 生成计划（流式）
+    prompt = PLANNER_PROMPT.format(input=user_input)
+    logger.info(f"📝 [PLAN 节点] 调用 LLM 生成计划（流式）...")
+
+    full_response = ""
+    async for chunk in llm.astream(prompt):
+        token = chunk.content
+        full_response += token
+
+        # 调用回调，发送思考过程
+        if thinking_callback:
+            thinking_callback("plan", token)
+
+    logger.info(f"📄 [PLAN 节点] LLM 完整响应长度: {len(full_response)} 字符")
 
     # 解析计划
-    plan_steps = parse_plan_steps(response.content)
+    plan_steps = parse_plan_steps(full_response)
 
     # 如果没有解析到步骤，创建一个默认步骤
     if not plan_steps:
@@ -108,6 +119,9 @@ async def execute_node(state: AgentState) -> AgentState:
     user_input = state["messages"][-1].content
     completed_steps = state["steps_results"]
 
+    # 获取思考回调
+    thinking_callback = state.get("thinking_callback")
+
     # 构建执行提示
     completed_info = "\n".join([
         f"- {plan[i]['description']}: {result}"
@@ -120,13 +134,21 @@ async def execute_node(state: AgentState) -> AgentState:
         current_step=current_step["description"]
     )
 
-    # 执行步骤
-    logger.info(f"📝 [EXECUTE 节点] 调用 LLM 执行步骤...")
-    response = await llm.ainvoke(prompt)
-    result = response.content
+    # 执行步骤（流式）
+    logger.info(f"📝 [EXECUTE 节点] 调用 LLM 执行步骤（流式）...")
+    full_response = ""
+    async for chunk in llm.astream(prompt):
+        token = chunk.content
+        full_response += token
+
+        # 调用回调，发送思考过程
+        if thinking_callback:
+            thinking_callback("execute", token)
+
+    result = full_response
 
     logger.info(f"✅ [EXECUTE 节点] 步骤执行完成")
-    logger.info(f"📄 [EXECUTE 节点] 执行结果预览: {result[:200]}...")
+    logger.info(f"📄 [EXECUTE 节点] 执行结果长度: {len(result)} 字符")
 
     # 更新步骤状态和结果
     updated_plan = [
@@ -150,6 +172,9 @@ async def synthesize_node(state: AgentState) -> AgentState:
     plan = state["plan"]
     steps_results = state["steps_results"]
 
+    # 获取思考回调
+    thinking_callback = state.get("thinking_callback")
+
     logger.info(f"📊 [SYNTHESIZE 节点] 需要综合 {len(steps_results)} 个步骤的结果")
 
     # 构建计划描述
@@ -164,22 +189,28 @@ async def synthesize_node(state: AgentState) -> AgentState:
         for i, result in enumerate(steps_results)
     ])
 
-    # 使用 LLM 综合结果
-    logger.info(f"📝 [SYNTHESIZE 节点] 调用 LLM 综合结果...")
+    # 使用 LLM 综合结果（流式）
+    logger.info(f"📝 [SYNTHESIZE 节点] 调用 LLM 综合结果（流式）...")
     prompt = SYNTHESIZER_PROMPT.format(
         user_input=user_input,
         plan=plan_info,
         steps_results=results_info
     )
 
-    response = await llm.ainvoke(prompt)
+    full_response = ""
+    async for chunk in llm.astream(prompt):
+        token = chunk.content
+        full_response += token
+
+        # 调用回调，发送思考过程
+        if thinking_callback:
+            thinking_callback("synthesize", token)
 
     logger.info(f"✅ [SYNTHESIZE 节点] 综合完成")
-    logger.info(f"📄 [SYNTHESIZE 节点] 最终回答预览: {response.content[:300]}...")
-    logger.info(f"📏 [SYNTHESIZE 节点] 最终回答长度: {len(response.content)} 字符")
+    logger.info(f"📏 [SYNTHESIZE 节点] 最终回答长度: {len(full_response)} 字符")
 
     return {
-        "final_response": response.content,
+        "final_response": full_response,
         "is_finished": True,
     }
 
