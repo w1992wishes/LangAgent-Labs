@@ -118,36 +118,56 @@ async def stream_graph_events(user_message: str) -> AsyncGenerator[dict, None]:
             "data": "开始处理您的请求..."
         }
 
-        # 创建异步任务：执行图并收集结果
-        async def run_graph():
-            """执行图并收集最终状态"""
-            result_state = {}
-            async for event in graph.astream(initial_state):
-                for node_name, node_output in event.items():
-                    if isinstance(node_output, dict):
-                        result_state.update(node_output)
-            return result_state
+        # 收集所有状态更新
+        final_state = {}
 
-        # 启动图执行任务
-        graph_task = asyncio.create_task(run_graph())
+        # 异步执行图（恢复原来的方式）
+        async for event in graph.astream(initial_state):
+            # 处理思考事件（非阻塞）
+            while not thinking_queue.empty():
+                try:
+                    thinking_event = thinking_queue.get_nowait()
+                    node_name = thinking_event["node"]
+                    token = thinking_event["token"]
 
-        # 同时处理思考事件
-        while not graph_task.done():
-            # 尝试获取思考事件（带超时）
-            try:
-                thinking_event = await asyncio.wait_for(thinking_queue.get(), timeout=0.05)
-                node_name = thinking_event["node"]
-                token = thinking_event["token"]
+                    yield {
+                        "event": "thinking",
+                        "data": f"[{node_name.upper()}] {token}"
+                    }
+                except asyncio.QueueEmpty:
+                    break
 
-                yield {
-                    "event": "thinking",
-                    "data": f"[{node_name.upper()}] {token}"
-                }
-            except asyncio.TimeoutError:
-                # 没有思考事件，继续循环
-                continue
+            # 处理图的事件
+            for node_name, node_output in event.items():
+                if isinstance(node_output, dict):
+                    # 更新最终状态
+                    final_state.update(node_output)
 
-        # 图执行完成，处理剩余的思考事件
+                    logger.info(f"🔄 [流式] 节点执行: {node_name}")
+
+                    # 发送节点进度
+                    if node_name == "plan":
+                        plan = final_state.get("plan", [])
+                        yield {
+                            "event": "progress",
+                            "data": f"✅ 已生成执行计划，共 {len(plan)} 个步骤"
+                        }
+                    elif node_name == "execute":
+                        current_index = final_state.get("current_step_index", 0)
+                        plan = final_state.get("plan", [])
+                        if current_index > 0 and current_index <= len(plan):
+                            step = plan[current_index - 1]
+                            yield {
+                                "event": "progress",
+                                "data": f"⚙️ 正在执行步骤 {current_index}/{len(plan)}: {step.get('description', '')[:50]}..."
+                            }
+                    elif node_name == "synthesize":
+                        yield {
+                            "event": "progress",
+                            "data": "🔄 正在综合分析结果..."
+                        }
+
+        # 处理剩余的思考事件
         while not thinking_queue.empty():
             thinking_event = thinking_queue.get_nowait()
             node_name = thinking_event["node"]
@@ -157,13 +177,9 @@ async def stream_graph_events(user_message: str) -> AsyncGenerator[dict, None]:
                 "data": f"[{node_name.upper()}] {token}"
             }
 
-        # 获取最终结果
-        final_state = await graph_task
-
+        # 发送最终结果（从已收集的状态中获取）
         logger.info(f"✅ [流式] 执行完成")
         logger.info(f"📤 [流式] 最终回答长度: {len(final_state.get('final_response', ''))} 字符")
-
-        # 发送最终结果
         yield {
             "event": "final",
             "data": {
